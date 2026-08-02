@@ -1,7 +1,7 @@
 """
 OmnMarkdown 批量转换核心模块
 支持: .docx, .pdf, .pptx, .xlsx, .txt
-支持: 标题、列表、表格、图片提取、加粗/斜体、超链接
+支持: 标题、列表、表格、图片提取、加粗/斜体、超链接、文字颜色、高亮背景、删除线、上下标、脚注/尾注、批注旁注
 """
 
 import os
@@ -51,13 +51,35 @@ class Word2MarkdownConverter:
         image_dir: str = "images",
         heading_offset: int = 0,
         max_image_width: int = 0,
+        extract_colors: bool = True,
+        extract_highlights: bool = True,
+        extract_footnotes: bool = True,
+        extract_comments: bool = True,
     ):
         self.extract_images = extract_images
         self.image_format = image_format
         self.image_dir = image_dir
         self.heading_offset = heading_offset
         self.max_image_width = max_image_width
+        self.extract_colors = extract_colors
+        self.extract_highlights = extract_highlights
+        self.extract_footnotes = extract_footnotes
+        self.extract_comments = extract_comments
         self._image_counter = 0
+        self._footnotes = {}  # id -> text
+        self._endnotes = {}   # id -> text
+        self._comments = {}   # id -> text
+        self._footnote_refs = []  # 按出现顺序记录脚注引用 id
+
+    # Word 内置高亮颜色到 HEX 的映射
+    HIGHLIGHT_COLORS = {
+        "yellow": "#FFFF00", "green": "#00FF00", "cyan": "#00FFFF",
+        "magenta": "#FF00FF", "blue": "#0000FF", "red": "#FF0000",
+        "darkBlue": "#00008B", "darkCyan": "#008B8B", "darkGreen": "#006400",
+        "darkMagenta": "#8B008B", "darkRed": "#8B0000", "darkYellow": "#8B8B00",
+        "darkGray": "#A9A9A9", "lightGray": "#D3D3D3", "black": "#000000",
+        "white": "#FFFFFF",
+    }
 
     def convert_file(self, input_path: str, output_path: Optional[str] = None) -> str:
         """转换单个文件，自动识别格式，返回输出路径"""
@@ -108,6 +130,17 @@ class Word2MarkdownConverter:
     def _convert_document(self, doc: Document, source_path: Path) -> str:
         """转换整个 docx 文档"""
         self._image_counter = 0
+        self._footnotes = {}
+        self._endnotes = {}
+        self._comments = {}
+        self._footnote_refs = []
+
+        # 加载脚注/尾注/批注
+        if self.extract_footnotes:
+            self._load_footnotes_endnotes(doc)
+        if self.extract_comments:
+            self._load_comments(doc)
+
         lines = []
 
         for element in doc.element.body:
@@ -128,6 +161,17 @@ class Word2MarkdownConverter:
         content = "\n\n".join(line for line in lines if line is not None)
         # 清理多余空行
         content = re.sub(r"\n{3,}", "\n\n", content)
+
+        # 追加脚注/尾注定义
+        footnote_section = self._build_footnote_section()
+        if footnote_section:
+            content = content.strip() + "\n\n" + footnote_section
+
+        # 追加批注
+        comment_section = self._build_comment_section()
+        if comment_section:
+            content = content.strip() + "\n\n" + comment_section
+
         return content.strip() + "\n"
 
     def _convert_paragraph(self, para: Paragraph, source_path: Path, output_dir: Path = None) -> str:
@@ -167,11 +211,167 @@ class Word2MarkdownConverter:
 
         return text
 
+    def _get_run_color(self, run) -> Optional[str]:
+        """从 run 的 XML 中提取字体颜色（HEX）"""
+        rpr = run._element.find(qn("w:rPr"))
+        if rpr is None:
+            return None
+        color_elem = rpr.find(qn("w:color"))
+        if color_elem is None:
+            return None
+        val = color_elem.get(qn("w:val"))
+        if val and val.lower() not in ("auto", "000000"):
+            return f"#{val}" if not val.startswith("#") else val
+        return None
+
+    def _get_run_highlight(self, run) -> Optional[str]:
+        """从 run 的 XML 中提取高亮/背景色（HEX）"""
+        rpr = run._element.find(qn("w:rPr"))
+        if rpr is None:
+            return None
+        # 优先检查 w:highlight
+        hl = rpr.find(qn("w:highlight"))
+        if hl is not None:
+            val = hl.get(qn("w:val"))
+            if val and val.lower() != "none":
+                return self.HIGHLIGHT_COLORS.get(val, None)
+        # 再检查 w:shd（底纹/背景色）
+        shd = rpr.find(qn("w:shd"))
+        if shd is not None:
+            fill = shd.get(qn("w:fill"))
+            if fill and fill.lower() not in ("auto", "ffffff"):
+                return f"#{fill}" if not fill.startswith("#") else fill
+        return None
+
+    def _get_run_vert_align(self, run) -> Optional[str]:
+        """从 run 的 XML 中提取上下标（subscript/superscript）"""
+        rpr = run._element.find(qn("w:rPr"))
+        if rpr is None:
+            return None
+        vert = rpr.find(qn("w:vertAlign"))
+        if vert is not None:
+            return vert.get(qn("w:val"))
+        return None
+
+    # ================================================================
+    # 脚注/尾注/批注提取
+    # ================================================================
+
+    def _load_footnotes_endnotes(self, doc: Document):
+        """从 docx 包中提取脚注和尾注内容"""
+        try:
+            # 脚注: word/footnotes.xml
+            if "word/footnotes.xml" in doc.part.package.parts:
+                fn_part = doc.part.package.parts["word/footnotes.xml"]
+                from lxml import etree
+                fn_tree = etree.fromstring(fn_part.blob)
+                for fn in fn_tree.findall(qn("w:footnote")):
+                    fn_id = fn.get(qn("w:id"))
+                    fn_type = fn.get(qn("w:type"))
+                    if fn_type in ("separator", "continuationSeparator"):
+                        continue  # 跳过分隔符
+                    # 提取脚注文本
+                    texts = []
+                    for p in fn.findall(qn("w:p")):
+                        for t in p.iter(qn("w:t")):
+                            if t.text:
+                                texts.append(t.text)
+                    if fn_id and texts:
+                        self._footnotes[fn_id] = "".join(texts).strip()
+        except Exception as e:
+            print(f"  [警告] 脚注提取失败: {e}")
+
+        try:
+            # 尾注: word/endnotes.xml
+            if "word/endnotes.xml" in doc.part.package.parts:
+                en_part = doc.part.package.parts["word/endnotes.xml"]
+                from lxml import etree
+                en_tree = etree.fromstring(en_part.blob)
+                for en in en_tree.findall(qn("w:endnote")):
+                    en_id = en.get(qn("w:id"))
+                    en_type = en.get(qn("w:type"))
+                    if en_type in ("separator", "continuationSeparator"):
+                        continue
+                    texts = []
+                    for p in en.findall(qn("w:p")):
+                        for t in p.iter(qn("w:t")):
+                            if t.text:
+                                texts.append(t.text)
+                    if en_id and texts:
+                        self._endnotes[en_id] = "".join(texts).strip()
+        except Exception as e:
+            print(f"  [警告] 尾注提取失败: {e}")
+
+    def _load_comments(self, doc: Document):
+        """从 docx 包中提取批注内容"""
+        try:
+            if "word/comments.xml" in doc.part.package.parts:
+                cm_part = doc.part.package.parts["word/comments.xml"]
+                from lxml import etree
+                cm_tree = etree.fromstring(cm_part.blob)
+                for cm in cm_tree.findall(qn("w:comment")):
+                    cm_id = cm.get(qn("w:id"))
+                    author = cm.get(qn("w:author"), "")
+                    texts = []
+                    for p in cm.findall(qn("w:p")):
+                        for t in p.iter(qn("w:t")):
+                            if t.text:
+                                texts.append(t.text)
+                    if cm_id and texts:
+                        note = "".join(texts).strip()
+                        if author:
+                            note = f"[{author}]: {note}"
+                        self._comments[cm_id] = note
+        except Exception as e:
+            print(f"  [警告] 批注提取失败: {e}")
+
+    def _build_footnote_section(self) -> str:
+        """构建 Markdown 脚注定义区域"""
+        if not self._footnote_refs:
+            return ""
+        lines = ["---", "", "**脚注与尾注**", ""]
+        for i, fn_id in enumerate(self._footnote_refs, 1):
+            # 查找脚注或尾注
+            text = self._footnotes.get(fn_id) or self._endnotes.get(fn_id, "")
+            if text:
+                lines.append(f"[^{i}]: {text}")
+        return "\n".join(lines) if len(lines) > 4 else ""
+
+    def _build_comment_section(self) -> str:
+        """构建批注/旁注区域"""
+        if not self._comments:
+            return ""
+        lines = ["---", "", "**批注与旁注**", ""]
+        for cm_id, text in self._comments.items():
+            lines.append(f"> {text}")
+            lines.append("")
+        return "\n".join(lines) if len(lines) > 4 else ""
+
     def _convert_runs(self, para: Paragraph, source_path: Path) -> str:
-        """转换文本 runs，处理加粗/斜体/代码/超链接"""
+        """转换文本 runs，处理加粗/斜体/颜色/高亮/删除线/上下标/脚注/超链接"""
         parts = []
 
         for run in para.runs:
+            # 检测脚注引用
+            fn_ref = run._element.find(qn("w:footnoteReference"))
+            if fn_ref is not None and self.extract_footnotes:
+                fn_id = fn_ref.get(qn("w:id"))
+                if fn_id:
+                    self._footnote_refs.append(fn_id)
+                    idx = len(self._footnote_refs)
+                    parts.append(f"<sup>[^{idx}]</sup>")
+                continue
+
+            # 检测尾注引用
+            en_ref = run._element.find(qn("w:endnoteReference"))
+            if en_ref is not None and self.extract_footnotes:
+                en_id = en_ref.get(qn("w:id"))
+                if en_id:
+                    self._footnote_refs.append(en_id)
+                    idx = len(self._footnote_refs)
+                    parts.append(f"<sup>[^{idx}]</sup>")
+                continue
+
             text = run.text
             if not text:
                 continue
@@ -195,6 +395,25 @@ class Word2MarkdownConverter:
                 # 删除线
                 if run.font.strike:
                     text = f"~~{text}~~"
+
+                # 上下标
+                vert = self._get_run_vert_align(run)
+                if vert == "superscript":
+                    text = f"<sup>{text}</sup>"
+                elif vert == "subscript":
+                    text = f"<sub>{text}</sub>"
+
+                # 字体颜色
+                if self.extract_colors:
+                    color = self._get_run_color(run)
+                    if color:
+                        text = f'<span style="color:{color}">{text}</span>'
+
+                # 高亮/背景色
+                if self.extract_highlights:
+                    highlight = self._get_run_highlight(run)
+                    if highlight:
+                        text = f'<mark style="background:{highlight}">{text}</mark>'
 
             parts.append(text)
 

@@ -55,6 +55,10 @@ class OmnMarkdownApp:
         self.output_dir = tk.StringVar()
         self.extract_images = tk.BooleanVar(value=True)
         self.max_image_width = tk.IntVar(value=0)
+        self.extract_colors = tk.BooleanVar(value=True)
+        self.extract_highlights = tk.BooleanVar(value=True)
+        self.extract_footnotes = tk.BooleanVar(value=True)
+        self.extract_comments = tk.BooleanVar(value=True)
         self.is_converting = False
 
         # 构建界面
@@ -101,17 +105,33 @@ class OmnMarkdownApp:
             side=tk.LEFT
         )
 
-        # 选项行
+        # 选项行1
         opt_row = ttk.Frame(output_frame)
         opt_row.pack(fill=tk.X, pady=(12, 0))
         ttk.Checkbutton(opt_row, text="提取图片", variable=self.extract_images).pack(
             side=tk.LEFT, padx=(0, 20)
         )
-        ttk.Label(opt_row, text="图片最大宽度:", font=("Microsoft YaHei", 12)).pack(side=tk.LEFT)
+        ttk.Checkbutton(opt_row, text="保留文字颜色", variable=self.extract_colors).pack(
+            side=tk.LEFT, padx=(0, 20)
+        )
+        ttk.Checkbutton(opt_row, text="保留高亮背景", variable=self.extract_highlights).pack(
+            side=tk.LEFT, padx=(0, 20)
+        )
+
+        # 选项行2
+        opt_row2 = ttk.Frame(output_frame)
+        opt_row2.pack(fill=tk.X, pady=(6, 0))
+        ttk.Checkbutton(opt_row2, text="提取脚注/尾注", variable=self.extract_footnotes).pack(
+            side=tk.LEFT, padx=(0, 20)
+        )
+        ttk.Checkbutton(opt_row2, text="提取批注/旁注", variable=self.extract_comments).pack(
+            side=tk.LEFT, padx=(0, 20)
+        )
+        ttk.Label(opt_row2, text="图片最大宽度:", font=("Microsoft YaHei", 12)).pack(side=tk.LEFT)
         ttk.Spinbox(
-            opt_row, from_=0, to=4000, increment=100, textvariable=self.max_image_width, width=8, font=("Microsoft YaHei", 12)
+            opt_row2, from_=0, to=4000, increment=100, textvariable=self.max_image_width, width=8, font=("Microsoft YaHei", 12)
         ).pack(side=tk.LEFT, padx=(5, 0))
-        ttk.Label(opt_row, text="px (0=不缩放)", foreground="gray", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Label(opt_row2, text="px (0=不缩放)", foreground="gray", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=(5, 0))
 
         # ===== 标题（固定在顶部） =====
         title_frame = ttk.Frame(main)
@@ -279,6 +299,10 @@ class OmnMarkdownApp:
         converter = Word2MarkdownConverter(
             extract_images=self.extract_images.get(),
             max_image_width=self.max_image_width.get(),
+            extract_colors=self.extract_colors.get(),
+            extract_highlights=self.extract_highlights.get(),
+            extract_footnotes=self.extract_footnotes.get(),
+            extract_comments=self.extract_comments.get(),
         )
 
         output_path = Path(self.output_dir.get())

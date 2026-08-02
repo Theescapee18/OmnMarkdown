@@ -44,6 +44,10 @@ def convert_single_file(args: Tuple[str, str, dict]) -> Tuple[str, bool, str]:
             image_dir=options.get("image_dir", "images"),
             heading_offset=options.get("heading_offset", 0),
             max_image_width=options.get("max_image_width", 0),
+            extract_colors=options.get("extract_colors", True),
+            extract_highlights=options.get("extract_highlights", True),
+            extract_footnotes=options.get("extract_footnotes", True),
+            extract_comments=options.get("extract_comments", True),
         )
         result = converter.convert_file(input_path, output_path)
         return (input_path, True, result)
@@ -143,7 +147,11 @@ def main():
     parser.add_argument("--max-image-width", type=int, default=0, help="图片最大宽度（0=不缩放）")
     parser.add_argument("--heading-offset", type=int, default=0, help="标题级别偏移（如 1 表示 H1→H2）")
     parser.add_argument("--no-recursive", action="store_true", help="不递归扫描子目录")
-    parser.add_argument("-v", "--version", action="version", version="word2md-batch 1.0.0")
+    parser.add_argument("--no-color", action="store_true", help="不保留文字颜色（默认保留）")
+    parser.add_argument("--no-highlight", action="store_true", help="不保留高亮/背景色（默认保留）")
+    parser.add_argument("--no-footnotes", action="store_true", help="不提取脚注/尾注（默认提取）")
+    parser.add_argument("--no-comments", action="store_true", help="不提取批注/旁注（默认提取）")
+    parser.add_argument("-v", "--version", action="version", version="OmnMarkdown 2.1.0")
 
     args = parser.parse_args()
 
@@ -163,6 +171,10 @@ def main():
         "image_dir": args.image_dir,
         "heading_offset": args.heading_offset,
         "max_image_width": args.max_image_width,
+        "extract_colors": not args.no_color,
+        "extract_highlights": not args.no_highlight,
+        "extract_footnotes": not args.no_footnotes,
+        "extract_comments": not args.no_comments,
     }
 
     if len(files) == 1 and not output_dir:
