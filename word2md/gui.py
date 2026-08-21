@@ -18,6 +18,11 @@ try:
 except ImportError:
     from converter import Word2MarkdownConverter
 
+try:
+    from word2md.scanner import SensitiveWordScanner
+except ImportError:
+    from scanner import SensitiveWordScanner
+
 
 class OmnMarkdownApp:
     """OmnMarkdown 桌面应用"""
@@ -38,7 +43,7 @@ class OmnMarkdownApp:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("OmnMarkdown - 批量转换工具")
+        self.root.title("OmnMarkdown - 文档转换 + 敏感词扫描")
 
         # 获取屏幕尺寸，窗口设为 2/3
         screen_w = self.root.winfo_screenwidth()
@@ -61,145 +66,169 @@ class OmnMarkdownApp:
         self.extract_comments = tk.BooleanVar(value=True)
         self.is_converting = False
 
+        # 敏感词扫描变量
+        self.scan_target = tk.StringVar()
+        self.new_word_entry = tk.StringVar()
+        self.new_word_category = tk.StringVar(value="default")
+        self.is_scanning = False
+
         # 构建界面
         self._build_ui()
+        # 加载词库显示
+        self._refresh_wordlist()
 
     def _build_ui(self):
         """构建界面"""
         # 主容器
-        main = ttk.Frame(self.root, padding=25)
+        main = ttk.Frame(self.root, padding=15)
         main.pack(fill=tk.BOTH, expand=True)
 
-        # ===== 底部：进度和按钮区域（先 pack，固定在底部） =====
-        action_frame = ttk.Frame(main)
-        action_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
-
-        # 进度条
-        self.progress = ttk.Progressbar(action_frame, mode="determinate", length=400)
-        self.progress.pack(fill=tk.X, pady=(0, 8))
-
-        # 状态标签
-        self.status_label = ttk.Label(action_frame, text="就绪", foreground="gray", font=("Microsoft YaHei", 12))
-        self.status_label.pack(anchor=tk.W, pady=(0, 8))
-
-        # 开始按钮
-        self.start_btn = ttk.Button(
-            action_frame,
-            text="  开始转换  ",
-            command=self._start_conversion,
-            style="Start.TButton",
-        )
-        self.start_btn.pack(fill=tk.X, ipady=12)
-
-        # ===== 输出设置区域（固定在按钮上方） =====
-        output_frame = ttk.LabelFrame(main, text=" 输出设置 ", padding=15)
-        output_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 10))
-
-        # 输出目录
-        dir_row = ttk.Frame(output_frame)
-        dir_row.pack(fill=tk.X)
-        ttk.Label(dir_row, text="保存位置:", font=("Microsoft YaHei", 12)).pack(side=tk.LEFT)
-        self.output_entry = ttk.Entry(dir_row, textvariable=self.output_dir, width=50, font=("Microsoft YaHei", 12))
-        self.output_entry.pack(side=tk.LEFT, padx=(8, 8), fill=tk.X, expand=True)
-        ttk.Button(dir_row, text="  浏览  ", command=self._select_output_dir, width=8).pack(
-            side=tk.LEFT
-        )
-
-        # 选项行1
-        opt_row = ttk.Frame(output_frame)
-        opt_row.pack(fill=tk.X, pady=(12, 0))
-        ttk.Checkbutton(opt_row, text="提取图片", variable=self.extract_images).pack(
-            side=tk.LEFT, padx=(0, 20)
-        )
-        ttk.Checkbutton(opt_row, text="保留文字颜色", variable=self.extract_colors).pack(
-            side=tk.LEFT, padx=(0, 20)
-        )
-        ttk.Checkbutton(opt_row, text="保留高亮背景", variable=self.extract_highlights).pack(
-            side=tk.LEFT, padx=(0, 20)
-        )
-
-        # 选项行2
-        opt_row2 = ttk.Frame(output_frame)
-        opt_row2.pack(fill=tk.X, pady=(6, 0))
-        ttk.Checkbutton(opt_row2, text="提取脚注/尾注", variable=self.extract_footnotes).pack(
-            side=tk.LEFT, padx=(0, 20)
-        )
-        ttk.Checkbutton(opt_row2, text="提取批注/旁注", variable=self.extract_comments).pack(
-            side=tk.LEFT, padx=(0, 20)
-        )
-        ttk.Label(opt_row2, text="图片最大宽度:", font=("Microsoft YaHei", 12)).pack(side=tk.LEFT)
-        ttk.Spinbox(
-            opt_row2, from_=0, to=4000, increment=100, textvariable=self.max_image_width, width=8, font=("Microsoft YaHei", 12)
-        ).pack(side=tk.LEFT, padx=(5, 0))
-        ttk.Label(opt_row2, text="px (0=不缩放)", foreground="gray", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=(5, 0))
-
-        # ===== 标题（固定在顶部） =====
+        # ===== 标题 =====
         title_frame = ttk.Frame(main)
         title_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 8))
         ttk.Label(
             title_frame,
             text="OmnMarkdown",
-            font=("Microsoft YaHei", 22, "bold"),
+            font=("Microsoft YaHei", 20, "bold"),
         ).pack(side=tk.LEFT)
         ttk.Label(
             title_frame,
-            text=f"最多 {self.MAX_TASKS} 个任务",
+            text="v2.2",
             foreground="gray",
-            font=("Microsoft YaHei", 12),
-        ).pack(side=tk.RIGHT)
+            font=("Microsoft YaHei", 11),
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
-        # 支持格式提示
+        # ===== 选项卡 =====
+        self.notebook = ttk.Notebook(main)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        # 选项卡1: 文档转换
+        convert_tab = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(convert_tab, text="  文档转换  ")
+        self._build_convert_tab(convert_tab)
+
+        # 选项卡2: 敏感词扫描
+        scan_tab = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(scan_tab, text="  敏感词扫描  ")
+        self._build_scan_tab(scan_tab)
+
+    def _build_convert_tab(self, parent):
+        """构建文档转换选项卡"""
+        # 格式提示
         format_hint = ttk.Label(
-            main,
+            parent,
             text="支持格式：Word (.docx)  |  PDF (.pdf)  |  PPT (.pptx)  |  Excel (.xlsx)  |  文本 (.txt)",
             foreground="#2196F3",
             font=("Microsoft YaHei", 11),
             background="#E3F2FD",
             padding=(12, 6),
         )
-        format_hint.pack(side=tk.TOP, fill=tk.X, pady=(0, 12))
+        format_hint.pack(side=tk.TOP, fill=tk.X, pady=(0, 8))
 
-        # ===== 文件选择区域（填充剩余空间） =====
-        file_frame = ttk.LabelFrame(main, text=" 待转换文件 ", padding=15)
-        file_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        # 文件列表区域
+        file_frame = ttk.LabelFrame(parent, text=" 待转换文件 ", padding=12)
+        file_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
 
-        # 按钮行（先 pack 到顶部，固定位置）
         btn_frame = ttk.Frame(file_frame)
-        btn_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 10))
+        btn_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 8))
+        ttk.Button(btn_frame, text="  添加文件  ", command=self._add_files, width=12).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(btn_frame, text="  添加文件夹  ", command=self._add_folder, width=12).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(btn_frame, text="  移除选中  ", command=self._remove_selected, width=12).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(btn_frame, text="  清空  ", command=self._clear_files, width=8).pack(side=tk.RIGHT)
 
-        ttk.Button(btn_frame, text="  添加文件  ", command=self._add_files, width=14).pack(
-            side=tk.LEFT, padx=(0, 8)
-        )
-        ttk.Button(btn_frame, text="  添加文件夹  ", command=self._add_folder, width=14).pack(
-            side=tk.LEFT, padx=(0, 8)
-        )
-        ttk.Button(btn_frame, text="  移除选中  ", command=self._remove_selected, width=14).pack(
-            side=tk.LEFT, padx=(0, 8)
-        )
-        ttk.Button(btn_frame, text="  清空  ", command=self._clear_files, width=10).pack(
-            side=tk.RIGHT
-        )
-
-        # 任务计数（固定在按钮下方）
         self.task_count_label = ttk.Label(file_frame, text="当前任务: 0 / 10", font=("Microsoft YaHei", 12))
-        self.task_count_label.pack(side=tk.TOP, anchor=tk.E, pady=(0, 8))
+        self.task_count_label.pack(side=tk.TOP, anchor=tk.E, pady=(0, 6))
 
-        # 文件列表（填充剩余空间）
         list_frame = ttk.Frame(file_frame)
         list_frame.pack(fill=tk.BOTH, expand=True)
-
         scrollbar = ttk.Scrollbar(list_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.file_listbox = tk.Listbox(
-            list_frame,
-            selectmode=tk.EXTENDED,
-            yscrollcommand=scrollbar.set,
-            font=("Microsoft YaHei", 13),
-            height=6,
-        )
+        self.file_listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, yscrollcommand=scrollbar.set, font=("Microsoft YaHei", 12), height=5)
         self.file_listbox.pack(fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.file_listbox.yview)
+
+        # 输出设置
+        output_frame = ttk.LabelFrame(parent, text=" 输出设置 ", padding=10)
+        output_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 6))
+
+        dir_row = ttk.Frame(output_frame)
+        dir_row.pack(fill=tk.X)
+        ttk.Label(dir_row, text="保存位置:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
+        self.output_entry = ttk.Entry(dir_row, textvariable=self.output_dir, width=40, font=("Microsoft YaHei", 11))
+        self.output_entry.pack(side=tk.LEFT, padx=(6, 6), fill=tk.X, expand=True)
+        ttk.Button(dir_row, text="浏览", command=self._select_output_dir, width=6).pack(side=tk.LEFT)
+
+        opt_row = ttk.Frame(output_frame)
+        opt_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Checkbutton(opt_row, text="提取图片", variable=self.extract_images).pack(side=tk.LEFT, padx=(0, 14))
+        ttk.Checkbutton(opt_row, text="保留文字颜色", variable=self.extract_colors).pack(side=tk.LEFT, padx=(0, 14))
+        ttk.Checkbutton(opt_row, text="保留高亮背景", variable=self.extract_highlights).pack(side=tk.LEFT, padx=(0, 14))
+
+        opt_row2 = ttk.Frame(output_frame)
+        opt_row2.pack(fill=tk.X, pady=(4, 0))
+        ttk.Checkbutton(opt_row2, text="提取脚注/尾注", variable=self.extract_footnotes).pack(side=tk.LEFT, padx=(0, 14))
+        ttk.Checkbutton(opt_row2, text="提取批注/旁注", variable=self.extract_comments).pack(side=tk.LEFT, padx=(0, 14))
+
+        # 进度条和按钮
+        action_frame = ttk.Frame(parent)
+        action_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(4, 0))
+        self.progress = ttk.Progressbar(action_frame, mode="determinate", length=400)
+        self.progress.pack(fill=tk.X, pady=(0, 6))
+        self.status_label = ttk.Label(action_frame, text="就绪", foreground="gray", font=("Microsoft YaHei", 11))
+        self.status_label.pack(anchor=tk.W, pady=(0, 6))
+        self.start_btn = ttk.Button(action_frame, text="  开始转换  ", command=self._start_conversion, style="Start.TButton")
+        self.start_btn.pack(fill=tk.X, ipady=8)
+
+    def _build_scan_tab(self, parent):
+        """构建敏感词扫描选项卡"""
+        # 上半部分：词库管理
+        wordlist_frame = ttk.LabelFrame(parent, text=" 敏感词库管理 ", padding=12)
+        wordlist_frame.pack(fill=tk.X, pady=(0, 8))
+
+        # 添加词行
+        add_row = ttk.Frame(wordlist_frame)
+        add_row.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(add_row, text="添加敏感词:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
+        ttk.Entry(add_row, textvariable=self.new_word_entry, width=30, font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=(6, 6))
+        ttk.Label(add_row, text="分类:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
+        ttk.Entry(add_row, textvariable=self.new_word_category, width=10, font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=(6, 6))
+        ttk.Button(add_row, text="添加", command=self._add_sensitive_word, width=6).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(add_row, text="删除选中", command=self._remove_sensitive_word, width=8).pack(side=tk.LEFT, padx=(6, 0))
+
+        # 词库列表
+        list_frame = ttk.Frame(wordlist_frame)
+        list_frame.pack(fill=tk.X)
+        wl_scroll = ttk.Scrollbar(list_frame)
+        wl_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.wordlist_box = tk.Listbox(list_frame, yscrollcommand=wl_scroll.set, font=("Microsoft YaHei", 11), height=5, selectmode=tk.EXTENDED)
+        self.wordlist_box.pack(fill=tk.X)
+        wl_scroll.config(command=self.wordlist_box.yview)
+        ttk.Button(wordlist_frame, text="刷新词库", command=self._refresh_wordlist, width=10).pack(anchor=tk.E, pady=(6, 0))
+
+        # 下半部分：扫描操作
+        scan_frame = ttk.LabelFrame(parent, text=" 扫描操作 ", padding=12)
+        scan_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+
+        target_row = ttk.Frame(scan_frame)
+        target_row.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(target_row, text="扫描目标:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
+        ttk.Entry(target_row, textvariable=self.scan_target, width=40, font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=(6, 6), fill=tk.X, expand=True)
+        ttk.Button(target_row, text="选择目录", command=self._select_scan_target, width=8).pack(side=tk.LEFT)
+
+        # 扫描结果
+        result_frame = ttk.Frame(scan_frame)
+        result_frame.pack(fill=tk.BOTH, expand=True)
+        res_scroll = ttk.Scrollbar(result_frame)
+        res_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.scan_result_text = tk.Text(result_frame, yscrollcommand=res_scroll.set, font=("Microsoft YaHei", 11), height=10, state=tk.DISABLED)
+        self.scan_result_text.pack(fill=tk.BOTH, expand=True)
+        res_scroll.config(command=self.scan_result_text.yview)
+
+        # 扫描按钮
+        scan_action = ttk.Frame(parent)
+        scan_action.pack(side=tk.BOTTOM, fill=tk.X)
+        self.scan_btn = ttk.Button(scan_action, text="  开始扫描  ", command=self._start_scan, style="Start.TButton")
+        self.scan_btn.pack(fill=tk.X, ipady=8)
 
     def _update_task_count(self):
         """更新任务计数"""
@@ -350,6 +379,154 @@ class OmnMarkdownApp:
         result_msg = f"转换完成!\n\n成功: {success}\n失败: {failed}\n输出目录: {output_dir}"
         if messagebox.askyesno("完成", result_msg + "\n\n是否打开输出文件夹?"):
             os.startfile(output_dir)
+
+    # ================================================================
+    # 敏感词扫描功能
+    # ================================================================
+
+    def _add_sensitive_word(self):
+        """添加敏感词"""
+        text = self.new_word_entry.get().strip()
+        if not text:
+            messagebox.showwarning("提示", "请输入敏感词")
+            return
+
+        # 支持逗号/空格分隔多个词
+        words = [w.strip() for w in text.replace("，", ",").split(",") if w.strip()]
+        category = self.new_word_category.get().strip() or "default"
+
+        scanner = SensitiveWordScanner()
+        added = scanner.add_words(words, category=category)
+        self.new_word_entry.set("")
+        messagebox.showinfo("成功", f"新增 {added} 个敏感词（分类: {category}）\n词库共 {scanner.get_word_count()} 个")
+        self._refresh_wordlist()
+
+    def _remove_sensitive_word(self):
+        """删除选中的敏感词"""
+        selected = list(self.wordlist_box.curselection())
+        if not selected:
+            messagebox.showwarning("提示", "请先选择要删除的词")
+            return
+
+        words_to_remove = [self.wordlist_box.get(i) for i in selected]
+        # 去掉序号前缀
+        clean_words = []
+        for w in words_to_remove:
+            parts = w.split(". ", 1)
+            if len(parts) == 2:
+                clean_words.append(parts[1])
+            else:
+                clean_words.append(w)
+
+        scanner = SensitiveWordScanner()
+        removed = scanner.remove_words(clean_words)
+        messagebox.showinfo("成功", f"删除 {removed} 个敏感词")
+        self._refresh_wordlist()
+
+    def _refresh_wordlist(self):
+        """刷新词库显示"""
+        self.wordlist_box.delete(0, tk.END)
+        scanner = SensitiveWordScanner()
+        categories = scanner.list_words()
+        idx = 1
+        for cat, words in sorted(categories.items()):
+            for w in words:
+                self.wordlist_box.insert(tk.END, f"{idx}. {w}  [{cat}]")
+                idx += 1
+        if idx == 1:
+            self.wordlist_box.insert(tk.END, "（词库为空，请添加敏感词）")
+
+    def _select_scan_target(self):
+        """选择扫描目标目录"""
+        folder = filedialog.askdirectory(title="选择要扫描的目录")
+        if folder:
+            self.scan_target.set(folder)
+
+    def _start_scan(self):
+        """开始扫描"""
+        target = self.scan_target.get().strip()
+        if not target:
+            messagebox.showwarning("提示", "请选择要扫描的目录")
+            return
+
+        if not Path(target).exists():
+            messagebox.showerror("错误", f"路径不存在: {target}")
+            return
+
+        scanner = SensitiveWordScanner()
+        if scanner.get_word_count() == 0:
+            messagebox.showwarning("提示", "敏感词库为空，请先在词库管理中添加敏感词")
+            return
+
+        self.is_scanning = True
+        self.scan_btn.config(state=tk.DISABLED, text="扫描中...")
+        self.scan_result_text.config(state=tk.NORMAL)
+        self.scan_result_text.delete("1.0", tk.END)
+        self.scan_result_text.insert(tk.END, "正在扫描，请稍候...\n")
+        self.scan_result_text.config(state=tk.DISABLED)
+
+        thread = threading.Thread(target=self._do_scan, args=(target,), daemon=True)
+        thread.start()
+
+    def _do_scan(self, target: str):
+        """执行扫描（后台线程）"""
+        scanner = SensitiveWordScanner()
+        report = scanner.scan_directory(target)
+
+        # 保存报告
+        json_path = scanner.save_report(report)
+        csv_path = scanner.save_report_csv(report)
+
+        # 构建显示文本
+        lines = []
+        lines.append(f"扫描完成：{report['scan_time']}")
+        lines.append(f"扫描文件: {report['total_files_scanned']} 个")
+        lines.append(f"命中文件: {report['files_with_hits']} 个")
+        lines.append(f"总命中数: {report['total_hits']} 次")
+        lines.append("")
+
+        if report['file_summary']:
+            lines.append("━━━ 命中文件详情 ━━━")
+            for item in report['file_summary']:
+                lines.append(f"  [{item['hit_count']}次] {item['filename']}")
+                lines.append(f"    命中词: {', '.join(item['unique_words'])}")
+            lines.append("")
+
+        if report['details']:
+            lines.append("━━━ 详细记录 ━━━")
+            for hit in report['details'][:100]:
+                lines.append(f"  {hit['filename']}:{hit['line']}  [{hit['word']}]")
+                lines.append(f"    {hit['context']}")
+            if len(report['details']) > 100:
+                lines.append(f"  ... 还有 {len(report['details'])-100} 条记录")
+            lines.append("")
+
+        lines.append(f"报告已保存:")
+        lines.append(f"  JSON: {json_path}")
+        lines.append(f"  CSV:  {csv_path}")
+
+        result_text = "\n".join(lines)
+
+        self.root.after(0, lambda: self._scan_done(result_text, report))
+
+    def _scan_done(self, result_text: str, report: dict):
+        """扫描完成"""
+        self.is_scanning = False
+        self.scan_btn.config(state=tk.NORMAL, text="  开始扫描  ")
+        self.scan_result_text.config(state=tk.NORMAL)
+        self.scan_result_text.delete("1.0", tk.END)
+        self.scan_result_text.insert(tk.END, result_text)
+        self.scan_result_text.config(state=tk.DISABLED)
+
+        if report['total_hits'] > 0:
+            messagebox.showwarning(
+                "扫描完成",
+                f"发现 {report['total_hits']} 处敏感词命中！\n"
+                f"涉及 {report['files_with_hits']} 个文件\n\n"
+                f"报告已保存至本地，详见结果面板。"
+            )
+        else:
+            messagebox.showinfo("扫描完成", "未发现敏感词，所有文件安全。")
 
 
 def main():

@@ -12,6 +12,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import List, Tuple
 
 from word2md.converter import Word2MarkdownConverter
+from word2md.scanner import SensitiveWordScanner
 
 
 def find_docx_files(input_path: Path, recursive: bool = True) -> List[Path]:
@@ -122,7 +123,142 @@ def run_batch(files: List[Path], output_dir: Path, options: dict, workers: int):
     print(f"{'='*60}\n")
 
 
+def handle_scan(args):
+    """处理 scan 子命令：批量扫描敏感词"""
+    scanner = SensitiveWordScanner(
+        wordlist_path=args.wordlist if hasattr(args, 'wordlist') and args.wordlist else None
+    )
+
+    if scanner.get_word_count() == 0:
+        print("\n[警告] 敏感词库为空，请先添加敏感词：")
+        print("  word2md words add 敏感词1 敏感词2 ...")
+        sys.exit(1)
+
+    target = Path(args.target)
+    if not target.exists():
+        print(f"[错误] 路径不存在: {target}")
+        sys.exit(1)
+
+    extensions = args.ext.split(",") if args.ext else None
+
+    print(f"\n{'='*60}")
+    print(f"  OmnMarkdown 敏感词扫描")
+    print(f"  目标: {target}")
+    print(f"  词库: {scanner.get_word_count()} 个敏感词")
+    print(f"{'='*60}\n")
+
+    report = scanner.scan_directory(
+        str(target),
+        extensions=extensions,
+        recursive=not args.no_recursive,
+    )
+
+    if "error" in report:
+        print(f"[错误] {report['error']}")
+        sys.exit(1)
+
+    # 输出结果
+    print(f"  扫描文件: {report['total_files_scanned']} 个")
+    print(f"  命中文件: {report['files_with_hits']} 个")
+    print(f"  总命中数: {report['total_hits']} 次\n")
+
+    if report['file_summary']:
+        print("  命中文件详情:")
+        for item in report['file_summary']:
+            words_str = ", ".join(item['unique_words'][:5])
+            if len(item['unique_words']) > 5:
+                words_str += f"... (+{len(item['unique_words'])-5})"
+            print(f"    [{item['hit_count']}次] {item['filename']}")
+            print(f"           命中词: {words_str}")
+        print()
+
+    if report['details'] and args.show_details:
+        print("  详细记录:")
+        for hit in report['details'][:50]:
+            print(f"    {hit['filename']}:{hit['line']} [{hit['word']}] {hit['context']}")
+        if len(report['details']) > 50:
+            print(f"    ... 还有 {len(report['details'])-50} 条记录")
+        print()
+
+    # 保存报告
+    json_path = scanner.save_report(report)
+    csv_path = scanner.save_report_csv(report)
+    print(f"  报告已保存:")
+    print(f"    JSON: {json_path}")
+    print(f"    CSV:  {csv_path}")
+    print(f"{'='*60}\n")
+
+
+def handle_words(args):
+    """处理 words 子命令：管理敏感词库"""
+    scanner = SensitiveWordScanner()
+
+    if args.action == "add":
+        if not args.words:
+            print("[错误] 请指定要添加的敏感词")
+            sys.exit(1)
+        category = args.category or "default"
+        added = scanner.add_words(args.words, category=category)
+        print(f"  ✓ 新增 {added} 个敏感词（分类: {category}），词库共 {scanner.get_word_count()} 个")
+
+    elif args.action == "remove":
+        if not args.words:
+            print("[错误] 请指定要删除的敏感词")
+            sys.exit(1)
+        removed = scanner.remove_words(args.words)
+        print(f"  ✓ 删除 {removed} 个敏感词，词库剩余 {scanner.get_word_count()} 个")
+
+    elif args.action == "list":
+        categories = scanner.list_words()
+        if not categories or all(len(v) == 0 for v in categories.values()):
+            print("  敏感词库为空")
+            return
+        total = 0
+        for cat, words in sorted(categories.items()):
+            if words:
+                print(f"\n  [{cat}] ({len(words)} 个):")
+                for i, w in enumerate(words, 1):
+                    print(f"    {i}. {w}")
+                total += len(words)
+        print(f"\n  共 {total} 个敏感词")
+        print(f"  词库路径: {scanner.wordlist_path}")
+
+
 def main():
+    # 检测是否为子命令模式
+    if len(sys.argv) > 1 and sys.argv[1] in ("scan", "words"):
+        # 子命令模式
+        parser = argparse.ArgumentParser(
+            prog="word2md",
+            description="OmnMarkdown - 文档转换 + 敏感词扫描工具",
+        )
+        subparsers = parser.add_subparsers(dest="command")
+
+        # scan 子命令
+        scan_parser = subparsers.add_parser("scan", help="批量扫描文件中的敏感词")
+        scan_parser.add_argument("target", help="要扫描的文件或目录路径")
+        scan_parser.add_argument("--wordlist", help="自定义词库路径（JSON）")
+        scan_parser.add_argument("--ext", help="文件扩展名，逗号分隔（如 .docx,.md,.txt）")
+        scan_parser.add_argument("--no-recursive", action="store_true", help="不递归扫描子目录")
+        scan_parser.add_argument("-d", "--show-details", action="store_true", help="显示详细命中记录")
+
+        # words 子命令
+        words_parser = subparsers.add_parser("words", help="管理敏感词库")
+        words_parser.add_argument("action", choices=["add", "remove", "list"], help="操作类型")
+        words_parser.add_argument("words", nargs="*", help="敏感词列表")
+        words_parser.add_argument("-c", "--category", help="分类名称（默认 default）")
+
+        args = parser.parse_args()
+
+        if args.command == "scan":
+            handle_scan(args)
+        elif args.command == "words":
+            handle_words(args)
+        else:
+            parser.print_help()
+        return
+
+    # 默认模式：文档转换
     parser = argparse.ArgumentParser(
         prog="word2md",
         description="批量将 Word 文档转换为 Markdown（支持图片提取和表格保留）",
@@ -133,8 +269,9 @@ def main():
   word2md ./docs/                        # 批量转换目录
   word2md ./docs/ -o ./output/           # 指定输出目录
   word2md ./docs/ -w 8                   # 8 线程并行
-  word2md ./docs/ --no-images            # 不提取图片
-  word2md ./docs/ --max-image-width 800  # 图片最大宽度 800px
+  word2md scan ./docs/ -d                # 扫描敏感词
+  word2md words add 机密 内部            # 添加敏感词
+  word2md words list                     # 查看词库
         """,
     )
 
@@ -151,7 +288,7 @@ def main():
     parser.add_argument("--no-highlight", action="store_true", help="不保留高亮/背景色（默认保留）")
     parser.add_argument("--no-footnotes", action="store_true", help="不提取脚注/尾注（默认提取）")
     parser.add_argument("--no-comments", action="store_true", help="不提取批注/旁注（默认提取）")
-    parser.add_argument("-v", "--version", action="version", version="OmnMarkdown 2.1.0")
+    parser.add_argument("-v", "--version", action="version", version="OmnMarkdown 2.2.0")
 
     args = parser.parse_args()
 
