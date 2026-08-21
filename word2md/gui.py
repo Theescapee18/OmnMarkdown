@@ -418,18 +418,20 @@ class OmnMarkdownApp:
             return
 
         words_to_remove = [self.wordlist_box.get(i) for i in selected]
-        # 去掉序号前缀
+        # 解析显示格式: "1. 机密  [default]" -> "机密"
         clean_words = []
         for w in words_to_remove:
+            # 去掉序号前缀 "1. "
             parts = w.split(". ", 1)
-            if len(parts) == 2:
-                clean_words.append(parts[1])
-            else:
-                clean_words.append(w)
+            word_part = parts[1] if len(parts) == 2 else w
+            # 去掉分类后缀 "  [default]"
+            if "  [" in word_part:
+                word_part = word_part.split("  [")[0]
+            clean_words.append(word_part.strip())
 
         scanner = SensitiveWordScanner()
         removed = scanner.remove_words(clean_words)
-        messagebox.showinfo("成功", f"删除 {removed} 个敏感词")
+        messagebox.showinfo("成功", f"删除 {removed} 个敏感词，词库剩余 {scanner.get_word_count()} 个")
         self._refresh_wordlist()
 
     def _refresh_wordlist(self):
