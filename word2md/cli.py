@@ -125,8 +125,10 @@ def run_batch(files: List[Path], output_dir: Path, options: dict, workers: int):
 
 def handle_scan(args):
     """处理 scan 子命令：批量扫描敏感词"""
+    report_dir = args.output if hasattr(args, 'output') and args.output else None
     scanner = SensitiveWordScanner(
-        wordlist_path=args.wordlist if hasattr(args, 'wordlist') and args.wordlist else None
+        wordlist_path=args.wordlist if hasattr(args, 'wordlist') and args.wordlist else None,
+        report_dir=report_dir,
     )
 
     if scanner.get_word_count() == 0:
@@ -241,6 +243,7 @@ def main():
         scan_parser.add_argument("--ext", help="文件扩展名，逗号分隔（如 .docx,.md,.txt）")
         scan_parser.add_argument("--no-recursive", action="store_true", help="不递归扫描子目录")
         scan_parser.add_argument("-d", "--show-details", action="store_true", help="显示详细命中记录")
+        scan_parser.add_argument("-o", "--output", help="报告保存目录（默认 ~/.omnmarkdown/scan_reports）")
 
         # words 子命令
         words_parser = subparsers.add_parser("words", help="管理敏感词库")

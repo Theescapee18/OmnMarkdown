@@ -68,6 +68,7 @@ class OmnMarkdownApp:
 
         # 敏感词扫描变量
         self.scan_target = tk.StringVar()
+        self.scan_report_dir = tk.StringVar(value=str(Path.home() / ".omnmarkdown" / "scan_reports"))
         self.new_word_entry = tk.StringVar()
         self.new_word_category = tk.StringVar(value="default")
         self.is_scanning = False
@@ -224,6 +225,13 @@ class OmnMarkdownApp:
         self.scan_result_text = tk.Text(result_frame, yscrollcommand=res_scroll.set, font=("Microsoft YaHei", 11), height=10, state=tk.DISABLED)
         self.scan_result_text.pack(fill=tk.BOTH, expand=True)
         res_scroll.config(command=self.scan_result_text.yview)
+
+        # 报告保存路径
+        report_row = ttk.Frame(scan_frame)
+        report_row.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(report_row, text="报告保存:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
+        ttk.Entry(report_row, textvariable=self.scan_report_dir, width=40, font=("Microsoft YaHei", 10)).pack(side=tk.LEFT, padx=(6, 6), fill=tk.X, expand=True)
+        ttk.Button(report_row, text="选择目录", command=self._select_report_dir, width=8).pack(side=tk.LEFT)
 
         # 扫描按钮
         scan_action = ttk.Frame(parent)
@@ -456,8 +464,13 @@ class OmnMarkdownApp:
             ],
         )
         if files:
-            # 多个文件用分号分隔存入
             self.scan_target.set(";".join(files))
+
+    def _select_report_dir(self):
+        """选择报告保存目录"""
+        folder = filedialog.askdirectory(title="选择报告保存目录")
+        if folder:
+            self.scan_report_dir.set(folder)
 
     def _start_scan(self):
         """开始扫描"""
@@ -484,12 +497,13 @@ class OmnMarkdownApp:
         self.scan_result_text.insert(tk.END, "正在扫描，请稍候...\n")
         self.scan_result_text.config(state=tk.DISABLED)
 
-        thread = threading.Thread(target=self._do_scan, args=(target,), daemon=True)
+        report_dir = self.scan_report_dir.get().strip()
+        thread = threading.Thread(target=self._do_scan, args=(target, report_dir), daemon=True)
         thread.start()
 
-    def _do_scan(self, target: str):
+    def _do_scan(self, target: str, report_dir: str = None):
         """执行扫描（后台线程）"""
-        scanner = SensitiveWordScanner()
+        scanner = SensitiveWordScanner(report_dir=report_dir if report_dir else None)
 
         # 支持多文件（分号分隔）或目录
         if ";" in target:
