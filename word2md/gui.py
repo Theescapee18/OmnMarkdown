@@ -213,7 +213,8 @@ class OmnMarkdownApp:
         target_row.pack(fill=tk.X, pady=(0, 6))
         ttk.Label(target_row, text="扫描目标:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
         ttk.Entry(target_row, textvariable=self.scan_target, width=40, font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=(6, 6), fill=tk.X, expand=True)
-        ttk.Button(target_row, text="选择目录", command=self._select_scan_target, width=8).pack(side=tk.LEFT)
+        ttk.Button(target_row, text="选择文件", command=self._select_scan_files, width=8).pack(side=tk.LEFT)
+        ttk.Button(target_row, text="选择目录", command=self._select_scan_target, width=8).pack(side=tk.LEFT, padx=(4, 0))
 
         # 扫描结果
         result_frame = ttk.Frame(scan_frame)
@@ -442,16 +443,34 @@ class OmnMarkdownApp:
         if folder:
             self.scan_target.set(folder)
 
+    def _select_scan_files(self):
+        """选择扫描目标文件"""
+        files = filedialog.askopenfilenames(
+            title="选择要扫描的文件",
+            filetypes=[
+                ("支持的文档", "*.docx;*.pdf;*.pptx;*.xlsx;*.txt;*.md"),
+                ("Word 文档", "*.docx"),
+                ("Markdown", "*.md"),
+                ("PDF 文档", "*.pdf"),
+                ("所有文件", "*.*"),
+            ],
+        )
+        if files:
+            # 多个文件用分号分隔存入
+            self.scan_target.set(";".join(files))
+
     def _start_scan(self):
         """开始扫描"""
         target = self.scan_target.get().strip()
         if not target:
-            messagebox.showwarning("提示", "请选择要扫描的目录")
+            messagebox.showwarning("提示", "请选择要扫描的文件或目录")
             return
 
-        if not Path(target).exists():
-            messagebox.showerror("错误", f"路径不存在: {target}")
-            return
+        # 多文件模式（分号分隔）跳过路径检查
+        if ";" not in target:
+            if not Path(target).exists():
+                messagebox.showerror("错误", f"路径不存在: {target}")
+                return
 
         scanner = SensitiveWordScanner()
         if scanner.get_word_count() == 0:
@@ -471,7 +490,46 @@ class OmnMarkdownApp:
     def _do_scan(self, target: str):
         """执行扫描（后台线程）"""
         scanner = SensitiveWordScanner()
-        report = scanner.scan_directory(target)
+
+        # 支持多文件（分号分隔）或目录
+        if ";" in target:
+            file_list = [f.strip() for f in target.split(";") if f.strip()]
+            # 逐个文件扫描
+            all_hits = []
+            scanned_files = 0
+            for fp in file_list:
+                if Path(fp).exists():
+                    scanned_files += 1
+                    hits = scanner.scan_file(fp)
+                    all_hits.extend(hits)
+
+            # 构建报告
+            file_summary = {}
+            for hit in all_hits:
+                fname = hit["filename"]
+                if fname not in file_summary:
+                    file_summary[fname] = {"file": hit["file"], "hits": [], "word_set": set()}
+                file_summary[fname]["hits"].append(hit)
+                file_summary[fname]["word_set"].add(hit["word"])
+
+            word_freq = {}
+            for hit in all_hits:
+                w = hit["word"]
+                word_freq[w] = word_freq.get(w, 0) + 1
+
+            report = {
+                "scan_time": __import__('datetime').datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "directory": f"{len(file_list)} 个文件",
+                "total_files_scanned": scanned_files,
+                "files_with_hits": len(file_summary),
+                "total_hits": len(all_hits),
+                "unique_words_found": list(word_freq.keys()),
+                "word_frequency": dict(sorted(word_freq.items(), key=lambda x: -x[1])),
+                "file_summary": [{"filename": k, "file": v["file"], "hit_count": len(v["hits"]), "unique_words": sorted(v["word_set"])} for k, v in sorted(file_summary.items(), key=lambda x: -len(x[1]["hits"]))],
+                "details": all_hits,
+            }
+        else:
+            report = scanner.scan_directory(target)
 
         # 保存报告
         json_path = scanner.save_report(report)

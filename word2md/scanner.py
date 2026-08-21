@@ -167,7 +167,7 @@ class SensitiveWordScanner:
             return {"error": f"路径不存在: {directory}"}
 
         if extensions is None:
-            extensions = [".docx", ".md", ".txt", ".text", ".pptx", ".pdf"]
+            extensions = [".docx", ".md", ".txt", ".text", ".pptx", ".pdf", ".xlsx"]
 
         ext_set = set(e.lower() if e.startswith(".") else f".{e.lower()}" for e in extensions)
         pattern = "**/*" if recursive else "*"
@@ -320,6 +320,22 @@ class SensitiveWordScanner:
                 doc = fitz.open(str(file_path))
                 parts = [page.get_text("text") for page in doc]
                 doc.close()
+                return "\n".join(parts)
+            except Exception:
+                return ""
+
+        if ext in (".xlsx", ".xls"):
+            try:
+                from openpyxl import load_workbook
+                wb = load_workbook(str(file_path), data_only=True)
+                parts = []
+                for sheet_name in wb.sheetnames:
+                    ws = wb[sheet_name]
+                    for row in ws.iter_rows(values_only=True):
+                        for cell in row:
+                            if cell is not None:
+                                parts.append(str(cell))
+                wb.close()
                 return "\n".join(parts)
             except Exception:
                 return ""
