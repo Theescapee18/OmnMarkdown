@@ -53,7 +53,7 @@ class OmnMarkdownApp:
         x = (screen_w - win_w) // 2
         y = (screen_h - win_h) // 2
         self.root.geometry(f"{win_w}x{win_h}+{x}+{y}")
-        self.root.minsize(600, 450)  # 最小尺寸限制
+        self.root.minsize(960, 700)  # 最小尺寸限制（防止缩小后按钮消失）
 
         # 变量
         self.tasks: List[Path] = []
@@ -90,13 +90,13 @@ class OmnMarkdownApp:
         ttk.Label(
             title_frame,
             text="OmnMarkdown",
-            font=("Microsoft YaHei", 20, "bold"),
+            font=("Microsoft YaHei", 24, "bold"),
         ).pack(side=tk.LEFT)
         ttk.Label(
             title_frame,
             text="v2.2",
             foreground="gray",
-            font=("Microsoft YaHei", 11),
+            font=("Microsoft YaHei", 13),
         ).pack(side=tk.LEFT, padx=(8, 0))
 
         # ===== 选项卡 =====
@@ -120,7 +120,7 @@ class OmnMarkdownApp:
             parent,
             text="支持格式：Word (.docx)  |  PDF (.pdf)  |  PPT (.pptx)  |  Excel (.xlsx)  |  文本 (.txt)",
             foreground="#2196F3",
-            font=("Microsoft YaHei", 11),
+            font=("Microsoft YaHei", 14),
             background="#E3F2FD",
             padding=(12, 6),
         )
@@ -137,14 +137,14 @@ class OmnMarkdownApp:
         ttk.Button(btn_frame, text="  移除选中  ", command=self._remove_selected, width=12).pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(btn_frame, text="  清空  ", command=self._clear_files, width=8).pack(side=tk.RIGHT)
 
-        self.task_count_label = ttk.Label(file_frame, text="当前任务: 0 / 10", font=("Microsoft YaHei", 12))
+        self.task_count_label = ttk.Label(file_frame, text="当前任务: 0 / 10", font=("Microsoft YaHei", 14))
         self.task_count_label.pack(side=tk.TOP, anchor=tk.E, pady=(0, 6))
 
         list_frame = ttk.Frame(file_frame)
         list_frame.pack(fill=tk.BOTH, expand=True)
         scrollbar = ttk.Scrollbar(list_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.file_listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, yscrollcommand=scrollbar.set, font=("Microsoft YaHei", 12), height=5)
+        self.file_listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, yscrollcommand=scrollbar.set, font=("Microsoft YaHei", 14), height=5)
         self.file_listbox.pack(fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.file_listbox.yview)
 
@@ -154,8 +154,8 @@ class OmnMarkdownApp:
 
         dir_row = ttk.Frame(output_frame)
         dir_row.pack(fill=tk.X)
-        ttk.Label(dir_row, text="保存位置:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
-        self.output_entry = ttk.Entry(dir_row, textvariable=self.output_dir, width=40, font=("Microsoft YaHei", 11))
+        ttk.Label(dir_row, text="保存位置:", font=("Microsoft YaHei", 14)).pack(side=tk.LEFT)
+        self.output_entry = ttk.Entry(dir_row, textvariable=self.output_dir, width=40, font=("Microsoft YaHei", 14))
         self.output_entry.pack(side=tk.LEFT, padx=(6, 6), fill=tk.X, expand=True)
         ttk.Button(dir_row, text="浏览", command=self._select_output_dir, width=6).pack(side=tk.LEFT)
 
@@ -175,7 +175,7 @@ class OmnMarkdownApp:
         action_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(4, 0))
         self.progress = ttk.Progressbar(action_frame, mode="determinate", length=400)
         self.progress.pack(fill=tk.X, pady=(0, 6))
-        self.status_label = ttk.Label(action_frame, text="就绪", foreground="gray", font=("Microsoft YaHei", 11))
+        self.status_label = ttk.Label(action_frame, text="就绪", foreground="gray", font=("Microsoft YaHei", 14))
         self.status_label.pack(anchor=tk.W, pady=(0, 6))
         self.start_btn = ttk.Button(action_frame, text="  开始转换  ", command=self._start_conversion, style="Start.TButton")
         self.start_btn.pack(fill=tk.X, ipady=8)
@@ -189,10 +189,10 @@ class OmnMarkdownApp:
         # 添加词行
         add_row = ttk.Frame(wordlist_frame)
         add_row.pack(fill=tk.X, pady=(0, 6))
-        ttk.Label(add_row, text="添加敏感词:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
-        ttk.Entry(add_row, textvariable=self.new_word_entry, width=30, font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=(6, 6))
-        ttk.Label(add_row, text="分类:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
-        ttk.Entry(add_row, textvariable=self.new_word_category, width=10, font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=(6, 6))
+        ttk.Label(add_row, text="添加敏感词:", font=("Microsoft YaHei", 14)).pack(side=tk.LEFT)
+        ttk.Entry(add_row, textvariable=self.new_word_entry, width=30, font=("Microsoft YaHei", 14)).pack(side=tk.LEFT, padx=(6, 6))
+        ttk.Label(add_row, text="分类:", font=("Microsoft YaHei", 14)).pack(side=tk.LEFT)
+        ttk.Entry(add_row, textvariable=self.new_word_category, width=10, font=("Microsoft YaHei", 14)).pack(side=tk.LEFT, padx=(6, 6))
         ttk.Button(add_row, text="添加", command=self._add_sensitive_word, width=6).pack(side=tk.LEFT, padx=(6, 0))
         ttk.Button(add_row, text="删除选中", command=self._remove_sensitive_word, width=8).pack(side=tk.LEFT, padx=(6, 0))
 
@@ -201,7 +201,7 @@ class OmnMarkdownApp:
         list_frame.pack(fill=tk.X)
         wl_scroll = ttk.Scrollbar(list_frame)
         wl_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.wordlist_box = tk.Listbox(list_frame, yscrollcommand=wl_scroll.set, font=("Microsoft YaHei", 11), height=5, selectmode=tk.EXTENDED)
+        self.wordlist_box = tk.Listbox(list_frame, yscrollcommand=wl_scroll.set, font=("Microsoft YaHei", 14), height=5, selectmode=tk.EXTENDED)
         self.wordlist_box.pack(fill=tk.X)
         wl_scroll.config(command=self.wordlist_box.yview)
         ttk.Button(wordlist_frame, text="刷新词库", command=self._refresh_wordlist, width=10).pack(anchor=tk.E, pady=(6, 0))
@@ -212,8 +212,8 @@ class OmnMarkdownApp:
 
         target_row = ttk.Frame(scan_frame)
         target_row.pack(fill=tk.X, pady=(0, 6))
-        ttk.Label(target_row, text="扫描目标:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
-        ttk.Entry(target_row, textvariable=self.scan_target, width=40, font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=(6, 6), fill=tk.X, expand=True)
+        ttk.Label(target_row, text="扫描目标:", font=("Microsoft YaHei", 14)).pack(side=tk.LEFT)
+        ttk.Entry(target_row, textvariable=self.scan_target, width=40, font=("Microsoft YaHei", 14)).pack(side=tk.LEFT, padx=(6, 6), fill=tk.X, expand=True)
         ttk.Button(target_row, text="选择文件", command=self._select_scan_files, width=8).pack(side=tk.LEFT)
         ttk.Button(target_row, text="选择目录", command=self._select_scan_target, width=8).pack(side=tk.LEFT, padx=(4, 0))
 
@@ -222,15 +222,15 @@ class OmnMarkdownApp:
         result_frame.pack(fill=tk.BOTH, expand=True)
         res_scroll = ttk.Scrollbar(result_frame)
         res_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.scan_result_text = tk.Text(result_frame, yscrollcommand=res_scroll.set, font=("Microsoft YaHei", 11), height=10, state=tk.DISABLED)
+        self.scan_result_text = tk.Text(result_frame, yscrollcommand=res_scroll.set, font=("Microsoft YaHei", 14), height=10, state=tk.DISABLED)
         self.scan_result_text.pack(fill=tk.BOTH, expand=True)
         res_scroll.config(command=self.scan_result_text.yview)
 
         # 报告保存路径
         report_row = ttk.Frame(scan_frame)
         report_row.pack(fill=tk.X, pady=(6, 0))
-        ttk.Label(report_row, text="报告保存:", font=("Microsoft YaHei", 11)).pack(side=tk.LEFT)
-        ttk.Entry(report_row, textvariable=self.scan_report_dir, width=40, font=("Microsoft YaHei", 10)).pack(side=tk.LEFT, padx=(6, 6), fill=tk.X, expand=True)
+        ttk.Label(report_row, text="报告保存:", font=("Microsoft YaHei", 14)).pack(side=tk.LEFT)
+        ttk.Entry(report_row, textvariable=self.scan_report_dir, width=40, font=("Microsoft YaHei", 13)).pack(side=tk.LEFT, padx=(6, 6), fill=tk.X, expand=True)
         ttk.Button(report_row, text="选择目录", command=self._select_report_dir, width=8).pack(side=tk.LEFT)
 
         # 扫描按钮
@@ -615,22 +615,23 @@ def main():
     style = ttk.Style()
     style.theme_use("clam")
 
-    # 全局字体配置
-    FONT_LABEL = ("Microsoft YaHei", 12)
-    FONT_BUTTON = ("Microsoft YaHei", 12)
-    FONT_TITLE = ("Microsoft YaHei", 22, "bold")
-    FONT_LIST = ("Microsoft YaHei", 13)
-    FONT_STATUS = ("Microsoft YaHei", 12)
-    FONT_START_BTN = ("Microsoft YaHei", 16, "bold")
+    # 全局字体配置（放大字体，提升可读性）
+    FONT_LABEL = ("Microsoft YaHei", 14)
+    FONT_BUTTON = ("Microsoft YaHei", 14)
+    FONT_TITLE = ("Microsoft YaHei", 24, "bold")
+    FONT_LIST = ("Microsoft YaHei", 14)
+    FONT_STATUS = ("Microsoft YaHei", 14)
+    FONT_START_BTN = ("Microsoft YaHei", 18, "bold")
 
     style.configure("TLabel", font=FONT_LABEL)
-    style.configure("TButton", font=FONT_BUTTON, padding=8)
+    style.configure("TButton", font=FONT_BUTTON, padding=10)
     style.configure("TCheckbutton", font=FONT_LABEL)
-    style.configure("TLabelframe.Label", font=("Microsoft YaHei", 13, "bold"))
-    style.configure("TEntry", font=FONT_LABEL, padding=6)
-    style.configure("TSpinbox", font=FONT_LABEL, padding=6)
-    style.configure("Horizontal.TProgressbar", thickness=24)
-    style.configure("Start.TButton", font=("Microsoft YaHei", 16, "bold"), padding=15)
+    style.configure("TLabelframe.Label", font=("Microsoft YaHei", 15, "bold"))
+    style.configure("TEntry", font=FONT_LABEL, padding=8)
+    style.configure("TSpinbox", font=FONT_LABEL, padding=8)
+    style.configure("Horizontal.TProgressbar", thickness=28)
+    style.configure("Start.TButton", font=("Microsoft YaHei", 18, "bold"), padding=18)
+    style.configure("TNotebook.Tab", font=("Microsoft YaHei", 14, "bold"), padding=[16, 8])
 
     app = OmnMarkdownApp(root)
     root.mainloop()
